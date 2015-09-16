@@ -27,28 +27,40 @@ func main() {
 	// Get arguments
 	c := &config{}
 
-	flag.StringVar(&c.keys_raw, "key", "", "Access key")
 	flag.StringVar(&c.region, "region", "", "Region")
-	flag.StringVar(&c.secret_keys_raw, "secret_key", "", "Secret Access key")
 	flag.StringVar(&c.ami, "ami", "", "AMI to find")
+	flag.StringVar(&c.secret_keys_raw, "secret_key", "", "Secret Access key")
+	flag.StringVar(&c.keys_raw, "key", "", "Access key")
 	flag.Parse()
+
+	if c.region == "" || c.ami == "" || c.secret_keys_raw == "" || c.keys_raw == "" {
+		flag.Usage()
+		os.Exit(1)
+	}
 
 	// Extract into slices
 	c.secret_keys = strings.Split(c.secret_keys_raw, ",")
 	c.keys = strings.Split(c.keys_raw, ",")
 	fmt.Println()
 
-	// Loop through all of the accounts, search for instance
+	done := make(chan bool)
+
+	// Loop through all of the accounts, search for instance in parallel
 	for i, k := range c.keys {
-		log.Println("Checking another account ", k)
-		svc := ec2.New(&aws.Config{
-			Region:      aws.String(c.region),
-			Credentials: credentials.NewStaticCredentials(k, c.secret_keys[i], ""),
-		})
-		if queryAmi(svc, c.ami) {
-			os.Exit(0)
-		}
+		go func() {
+			log.Println("Querying account ", k)
+			svc := ec2.New(&aws.Config{
+				Region:      aws.String(c.region),
+				Credentials: credentials.NewStaticCredentials(k, c.secret_keys[i], ""),
+			})
+			if queryAmi(svc, c.ami) {
+				done <- true
+			}
+		}()
 	}
+
+	<-done
+	log.Printf("Exiting")
 
 	// Profit
 }
@@ -61,7 +73,6 @@ func queryAmi(service *ec2.EC2, ami string) bool {
 	output, err := service.DescribeImages(&input)
 	if len(output.Images) > 0 {
 		checkError(err)
-
 		image := output.Images[0]
 		log.Printf("Found image in account: %s, with name: %s\n", *image.OwnerId, *image.Name)
 		return true
@@ -73,5 +84,4 @@ func checkError(err error) {
 	if err != nil {
 		log.Fatalf("Error: ", err)
 	}
-
 }
