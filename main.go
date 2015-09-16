@@ -28,9 +28,13 @@ func main() {
 	c := &config{}
 
 	flag.StringVar(&c.region, "region", "", "Region")
+	flag.StringVar(&c.region, "r", "", "Region")
 	flag.StringVar(&c.ami, "ami", "", "AMI to find")
+	flag.StringVar(&c.ami, "a", "", "AMI to find")
 	flag.StringVar(&c.secret_keys_raw, "secret_key", "", "Secret Access key")
+	flag.StringVar(&c.secret_keys_raw, "s", "", "Secret Access key")
 	flag.StringVar(&c.keys_raw, "key", "", "Access key")
+	flag.StringVar(&c.keys_raw, "k", "", "Access key")
 	flag.Parse()
 
 	if c.region == "" || c.ami == "" || c.secret_keys_raw == "" || c.keys_raw == "" {
