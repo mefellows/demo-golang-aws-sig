@@ -79,6 +79,7 @@ func queryAmi(service *ec2.EC2, ami string) bool {
 		checkError(err)
 		image := output.Images[0]
 		log.Printf("Found image in account: %s, with name: %s\n", *image.OwnerId, *image.Name)
+		log.Printf("Tags: %v", image.Tags)
 		return true
 	}
 	return false
