@@ -11,7 +11,10 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 )
+
+var total int
 
 func main() {
 
@@ -47,26 +50,54 @@ func main() {
 	c.keys = strings.Split(c.keys_raw, ",")
 	fmt.Println()
 
-	done := make(chan bool)
+	countChan := make(chan int, len(c.secret_keys))
+	finish := make(chan bool)
+	var done sync.WaitGroup
+	done.Add(len(c.keys))
+	go countStuff(countChan, done)
 
 	// Loop through all of the accounts, search for instance in parallel
 	for i, k := range c.keys {
-		go func() {
-			log.Println("Querying account ", k)
+		go func(i int, key string) {
+			log.Println("Querying account ", key)
 			svc := ec2.New(&aws.Config{
 				Region:      aws.String(c.region),
-				Credentials: credentials.NewStaticCredentials(k, c.secret_keys[i], ""),
+				Credentials: credentials.NewStaticCredentials(key, c.secret_keys[i], ""),
 			})
-			if queryAmi(svc, c.ami) {
-				done <- true
-			}
-		}()
-	}
 
-	<-done
-	log.Printf("Exiting")
+			countChan <- getInstanceCount(svc)
+			done.Done()
+		}(i, k)
+	}
+	close(finish)
+	done.Wait()
+	log.Printf("Total: %d", total)
 
 	// Profit
+}
+
+func countStuff(ch chan int, done sync.WaitGroup) {
+
+	for {
+		select {
+		case v := <-ch:
+			total = total + v
+		}
+	}
+
+}
+
+func getInstanceCount(service *ec2.EC2) int {
+	params := &ec2.DescribeInstancesInput{
+		MaxResults: aws.Int64(1024),
+	}
+	resp, err := service.DescribeInstances(params)
+	checkError(err)
+	count := 0
+	for _, res := range resp.Reservations {
+		count += len(res.Instances)
+	}
+	return count
 }
 
 // Return true if AMI exists
