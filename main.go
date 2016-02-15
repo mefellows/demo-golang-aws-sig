@@ -9,8 +9,10 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/vaughan0/go-ini"
+	"io/ioutil"
 	"log"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +39,7 @@ func main() {
 	flag.StringVar(&c.query, "q", "", "Query value (e.g. ami-1234)")
 	flag.DurationVar(&c.timeout, "timeout", 5*time.Second, "Timeout e.g. 5s")
 	flag.BoolVar(&verbose, "verbose", false, "Verbose logging?")
+	flag.BoolVar(&verbose, "v", false, "Verbose logging?")
 	flag.Parse()
 
 	if c.action == "" && c.query == "" {
@@ -44,11 +47,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Log verbosity
+	if !verbose {
+		log.SetOutput(ioutil.Discard)
+	}
+
 	c.profiles = listProfiles()
 
 	// If we find our thing earlier
 	doneChan := make(chan bool, 1)
 	failChan := make(chan bool, 1)
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, os.Kill)
 
 	// Notify all async when complete
 	go func() {
@@ -87,6 +97,8 @@ func main() {
 
 	// Wait up to timeout, or when first result comes back
 	select {
+	case <-sigChan:
+		log.Fatalf("Interrupt")
 	case <-time.After(c.timeout):
 		log.Fatalf("Timeout waiting for result")
 	case <-failChan:
@@ -105,10 +117,8 @@ func queryAmi(service *ec2.EC2, ami string) interface{} {
 	if len(output.Images) > 0 {
 		checkError(err)
 		image := output.Images[0]
-		if verbose {
-			log.Printf("Found image in account: %s, with name: %s\n", *image.OwnerId, *image.Name)
-			log.Printf("Tags: %v", image.Tags)
-		}
+		log.Printf("Found image in account: %s, with name: %s\n", *image.OwnerId, *image.Name)
+		log.Printf("Tags: %v", image.Tags)
 		return image
 	}
 	return nil
