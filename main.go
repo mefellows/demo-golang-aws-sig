@@ -1,76 +1,103 @@
 package main
 
-// Simple AMI query tool: uses basic loops
-
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	aws "github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/vaughan0/go-ini"
 	"log"
 	"os"
 	"strings"
+	"sync"
+	"time"
 )
+
+var verbose bool
 
 func main() {
 
 	type config struct {
-		keys_raw        string
-		secret_keys_raw string
-		region          string
-		keys            []string
-		secret_keys     []string
-		ami             string
+		profiles []string
+		region   string
+		action   string
+		query    string
+		timeout  time.Duration
 	}
 
-	// Get arguments
+	// Flags go in here
 	c := &config{}
 
-	flag.StringVar(&c.region, "region", "", "Region")
-	flag.StringVar(&c.region, "r", "", "Region")
-	flag.StringVar(&c.ami, "ami", "", "AMI to find")
-	flag.StringVar(&c.ami, "a", "", "AMI to find")
-	flag.StringVar(&c.secret_keys_raw, "secret_key", "", "Secret Access key")
-	flag.StringVar(&c.secret_keys_raw, "s", "", "Secret Access key")
-	flag.StringVar(&c.keys_raw, "key", "", "Access key")
-	flag.StringVar(&c.keys_raw, "k", "", "Access key")
+	flag.StringVar(&c.action, "action", "", "Action to perform (ami)")
+	flag.StringVar(&c.action, "a", "", "Action to perform (ami)")
+	flag.StringVar(&c.query, "query", "", "Query value (e.g. ami-1234)")
+	flag.StringVar(&c.query, "q", "", "Query value (e.g. ami-1234)")
+	flag.DurationVar(&c.timeout, "timeout", 5*time.Second, "Timeout e.g. 5s")
+	flag.BoolVar(&verbose, "verbose", false, "Verbose logging?")
 	flag.Parse()
 
-	if c.region == "" || c.ami == "" || c.secret_keys_raw == "" || c.keys_raw == "" {
+	if c.action == "" && c.query == "" {
 		flag.Usage()
 		os.Exit(1)
 	}
 
-	// Extract into slices
-	c.secret_keys = strings.Split(c.secret_keys_raw, ",")
-	c.keys = strings.Split(c.keys_raw, ",")
-	fmt.Println()
+	c.profiles = listProfiles()
 
-	done := make(chan bool)
+	// If we find our thing earlier
+	doneChan := make(chan bool, 1)
+	failChan := make(chan bool, 1)
 
-	// Loop through all of the accounts, search for instance in parallel
-	for i, k := range c.keys {
-		go func() {
-			log.Println("Querying account ", k)
-			svc := ec2.New(&aws.Config{
-				Region:      aws.String(c.region),
-				Credentials: credentials.NewStaticCredentials(k, c.secret_keys[i], ""),
-			})
-			if queryAmi(svc, c.ami) {
-				done <- true
-			}
-		}()
+	// Notify all async when complete
+	go func() {
+		var done sync.WaitGroup
+		done.Add(len(c.profiles))
+
+		// Loop through all of the accounts, search for instance in parallel
+		for _, k := range c.profiles {
+			go func(key string) {
+				config := &aws.Config{
+					Credentials: credentials.NewSharedCredentials("", key),
+				}
+				sess := session.New(config)
+				svc := ec2.New(sess)
+
+				var r interface{}
+				switch strings.ToLower(c.action) {
+				case "ami":
+					r = queryAmi(svc, c.query)
+				default:
+					log.Fatalf("Action '%s' is not a valid action", c.action)
+				}
+
+				if r != nil {
+					v, err := json.Marshal(r)
+					checkError(err)
+					fmt.Printf("%s", v)
+					doneChan <- true
+				}
+				done.Done()
+			}(k)
+		}
+		done.Wait()
+		failChan <- true
+	}()
+
+	// Wait up to timeout, or when first result comes back
+	select {
+	case <-time.After(c.timeout):
+		log.Fatalf("Timeout waiting for result")
+	case <-failChan:
+		log.Fatalf("No results returned")
+	case <-doneChan:
+		os.Exit(0)
 	}
-
-	<-done
-	log.Printf("Exiting")
-
-	// Profit
 }
 
 // Return true if AMI exists
-func queryAmi(service *ec2.EC2, ami string) bool {
+func queryAmi(service *ec2.EC2, ami string) interface{} {
 	input := ec2.DescribeImagesInput{
 		ImageIds: []*string{&ami},
 	}
@@ -78,11 +105,32 @@ func queryAmi(service *ec2.EC2, ami string) bool {
 	if len(output.Images) > 0 {
 		checkError(err)
 		image := output.Images[0]
-		log.Printf("Found image in account: %s, with name: %s\n", *image.OwnerId, *image.Name)
-		log.Printf("Tags: %v", image.Tags)
-		return true
+		if verbose {
+			log.Printf("Found image in account: %s, with name: %s\n", *image.OwnerId, *image.Name)
+			log.Printf("Tags: %v", image.Tags)
+		}
+		return image
 	}
-	return false
+	return nil
+}
+
+func listProfiles() []string {
+	// Make sure the config file exists
+	config := os.Getenv("HOME") + "/.aws/credentials"
+
+	if _, err := os.Stat(config); os.IsNotExist(err) {
+		fmt.Println("No credentials file found at: %s", config)
+		os.Exit(1)
+	}
+
+	file, _ := ini.LoadFile(config)
+	profiles := make([]string, 0)
+
+	for key, _ := range file {
+		profiles = append(profiles, key)
+	}
+
+	return profiles
 }
 
 func checkError(err error) {
