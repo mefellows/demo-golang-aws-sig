@@ -68,6 +68,7 @@ func main() {
 		// Loop through all of the accounts, search for instance in parallel
 		for _, k := range c.profiles {
 			go func(key string) {
+				log.Println("Searching account", key)
 				config := &aws.Config{
 					Credentials: credentials.NewSharedCredentials("", key),
 				}
