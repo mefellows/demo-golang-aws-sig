@@ -1,10 +1,7 @@
 package main
 
-// Simple AMI query tool: uses basic loops
-
 import (
 	"flag"
-	"fmt"
 	aws "github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -14,8 +11,6 @@ import (
 	"strings"
 	"sync"
 )
-
-var total int
 
 func main() {
 
@@ -49,7 +44,6 @@ func main() {
 	// Extract into slices
 	c.secret_keys = strings.Split(c.secret_keys_raw, ",")
 	c.keys = strings.Split(c.keys_raw, ",")
-	fmt.Println()
 
 	countChan := make(chan int, len(c.secret_keys))
 	finish := make(chan bool)
@@ -74,18 +68,18 @@ func main() {
 	}
 	close(finish)
 	done.Wait()
-	log.Printf("Total: %d", total)
 }
 
 func countStuff(ch chan int, done sync.WaitGroup) {
+	total := 0
 	for {
 		select {
 		case v := <-ch:
 			total = total + v
+			log.Printf("Total: %d", total)
 		}
 	}
 }
-
 func getInstanceCount(service *ec2.EC2) int {
 	params := &ec2.DescribeInstancesInput{
 		MaxResults: aws.Int64(1024),
