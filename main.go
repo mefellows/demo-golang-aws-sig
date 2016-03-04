@@ -46,7 +46,7 @@ func main() {
 
 	// Loop through all of the accounts, search for instance in parallel
 	for i, k := range c.keys {
-		go func() {
+		go func(i int, k string) {
 			log.Println("Querying account ", k)
 			config := &aws.Config{
 				Region:      aws.String(c.region),
@@ -57,7 +57,7 @@ func main() {
 			if queryAmi(svc, c.ami) {
 				done <- true
 			}
-		}()
+		}(i, k)
 	}
 
 	<-done
