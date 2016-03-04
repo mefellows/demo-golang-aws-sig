@@ -75,5 +75,4 @@ func checkError(err error) {
 	if err != nil {
 		log.Fatalf("Error: ", err)
 	}
-
 }
