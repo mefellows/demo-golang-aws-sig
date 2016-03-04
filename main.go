@@ -7,6 +7,7 @@ import (
 	"fmt"
 	aws "github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"log"
 	"os"
@@ -41,16 +42,17 @@ func main() {
 	// Loop through all of the accounts, search for instance
 	for i, k := range c.keys {
 		log.Println("Checking another account ", k)
-		svc := ec2.New(&aws.Config{
+		config := &aws.Config{
 			Region:      aws.String(c.region),
 			Credentials: credentials.NewStaticCredentials(k, c.secret_keys[i], ""),
-		})
+		}
+		sess := session.New(config)
+		svc := ec2.New(sess)
+
 		if queryAmi(svc, c.ami) {
 			os.Exit(0)
 		}
 	}
-
-	// Profit
 }
 
 // Return true if AMI exists
