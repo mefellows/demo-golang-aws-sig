@@ -4,8 +4,8 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	aws "github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"log"
@@ -41,7 +41,6 @@ func main() {
 	// Extract into slices
 	c.secret_keys = strings.Split(c.secret_keys_raw, ",")
 	c.keys = strings.Split(c.keys_raw, ",")
-	fmt.Println()
 
 	done := make(chan bool)
 
@@ -49,10 +48,12 @@ func main() {
 	for i, k := range c.keys {
 		go func() {
 			log.Println("Querying account ", k)
-			svc := ec2.New(&aws.Config{
+			config := &aws.Config{
 				Region:      aws.String(c.region),
 				Credentials: credentials.NewStaticCredentials(k, c.secret_keys[i], ""),
-			})
+			}
+			sess := session.New(config)
+			svc := ec2.New(sess)
 			if queryAmi(svc, c.ami) {
 				done <- true
 			}
@@ -60,9 +61,6 @@ func main() {
 	}
 
 	<-done
-	log.Printf("Exiting")
-
-	// Profit
 }
 
 // Return true if AMI exists
