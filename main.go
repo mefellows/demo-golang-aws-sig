@@ -7,6 +7,7 @@ import (
 	"fmt"
 	aws "github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"log"
 	"os"
@@ -60,10 +61,12 @@ func main() {
 	for i, k := range c.keys {
 		go func(i int, key string) {
 			log.Println("Querying account ", key)
-			svc := ec2.New(&aws.Config{
+			config := &aws.Config{
 				Region:      aws.String(c.region),
 				Credentials: credentials.NewStaticCredentials(key, c.secret_keys[i], ""),
-			})
+			}
+			sess := session.New(config)
+			svc := ec2.New(sess)
 
 			countChan <- getInstanceCount(svc)
 			done.Done()
@@ -72,19 +75,15 @@ func main() {
 	close(finish)
 	done.Wait()
 	log.Printf("Total: %d", total)
-
-	// Profit
 }
 
 func countStuff(ch chan int, done sync.WaitGroup) {
-
 	for {
 		select {
 		case v := <-ch:
 			total = total + v
 		}
 	}
-
 }
 
 func getInstanceCount(service *ec2.EC2) int {
@@ -98,22 +97,6 @@ func getInstanceCount(service *ec2.EC2) int {
 		count += len(res.Instances)
 	}
 	return count
-}
-
-// Return true if AMI exists
-func queryAmi(service *ec2.EC2, ami string) bool {
-	input := ec2.DescribeImagesInput{
-		ImageIds: []*string{&ami},
-	}
-	output, err := service.DescribeImages(&input)
-	if len(output.Images) > 0 {
-		checkError(err)
-		image := output.Images[0]
-		log.Printf("Found image in account: %s, with name: %s\n", *image.OwnerId, *image.Name)
-		log.Printf("Tags: %v", image.Tags)
-		return true
-	}
-	return false
 }
 
 func checkError(err error) {
